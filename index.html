@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Emu War Arcade (Fixed Lanes)</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #0f1016; color: #e6e6e6; font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; }
+    #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; }
+    canvas { background: #12131b; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); touch-action: none; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
+    .btn {
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.08);
+      color: #eaeaea;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 16px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .btn:active { transform: translateY(1px); background: rgba(255,255,255,.12); }
+    .hud { font-size: 14px; opacity: .9; text-align: center; line-height: 1.35; }
+    .pill { padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); }
+    .spacer { width: 8px; }
+    .touchpad {
+      position: relative;
+      width: min(920px, 96vw);
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .touchpad .btn { text-align: center; }
+    .touchpad .btn.big { font-weight: 700; letter-spacing: .3px; }
+    .small { font-size: 12px; opacity: .85; }
+    a { color: #cbd5ff; }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <div class="row">
+    <div class="pill" id="modePill">Mode: —</div>
+    <div class="pill" id="scorePill">Score: 0</div>
+    <div class="pill" id="timePill">Time: 0.0s</div>
+  </div>
+
+  <canvas id="c" width="900" height="560"></canvas>
+
+  <div class="row hud">
+    <span class="pill">Fixed lanes</span>
+    <span class="spacer"></span>
+    <span class="small">Touch: ▲/▼ lanes, ◀/▶ move, FIRE shoot.</span>
+  </div>
+
+  <div class="row">
+    <div class="btn" id="btnSoldier">1: Play as SOLDIER</div>
+    <div class="btn" id="btnEmu">2: Play as EMU</div>
+    <div class="btn" id="btnRestart">Restart</div>
+  </div>
+
+  <div class="touchpad">
+    <div class="btn" id="btnUp">▲ Lane Up</div>
+    <div class="btn big" id="btnFire">FIRE</div>
+    <div class="btn" id="btnRight">▶ Right</div>
+    <div class="btn" id="btnLeft">◀ Left</div>
+    <div class="btn" id="btnDown">▼ Lane Down</div>
+    <div class="btn" id="btnPause">Pause</div>
+  </div>
+
+  <div class="hud small">
+    Parody arcade inspired by the 1932 “Emu War” story. (No realism implied.)
+  </div>
+</div>
+
+<script>
+(() => {
+  // Canvas
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  // HUD
+  const modePill = document.getElementById('modePill');
+  const scorePill = document.getElementById('scorePill');
+  const timePill = document.getElementById('timePill');
+
+  // Buttons
+  const btnSoldier = document.getElementById('btnSoldier');
+  const btnEmu = document.getElementById('btnEmu');
+  const btnRestart = document.getElementById('btnRestart');
+  const btnUp = document.getElementById('btnUp');
+  const btnDown = document.getElementById('btnDown');
+  const btnLeft = document.getElementById('btnLeft');
+  const btnRight = document.getElementById('btnRight');
+  const btnFire = document.getElementById('btnFire');
+  const btnPause = document.getElementById('btnPause');
+
+  const W = canvas.width, H = canvas.height;
+
+  // Colors
+  const BG = '#12131b';
+  const SAND = '#2d2317';
+  const HUDC = '#e6e6e6';
+  const SOLDIER = '#5abfff';
+  const EMU = '#ffa05a';
+  const ENEMY_SOLDIER = '#82f0aa';
+  const BULLET = '#fff096';
+  const SPIT = '#ff78c8';
+  const HIT = '#ff5050';
+
+  // Lanes
+  const LANES = 7;
+  const TOP = 78;
+  const BOTTOM = H - 95;
+  const laneY = Array.from({length: LANES}, (_, i) => TOP + i*(BOTTOM-TOP)/(LANES-1));
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function nowSec() { return performance.now() / 1000; }
+  function rand(a,b){ return a + Math.random()*(b-a); }
+  function choice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+  function rectCollide(ax, ay, aw, ah, bx, by, bw, bh){
+    return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by;
+  }
+
+  // Input state
+  const input = {
+    left: false, right: false, fire: false,
+    laneUp: false, laneDown: false,
+    pauseToggle: false,
+    justLaneUp: false, justLaneDown: false,
+    justFire: false
+  };
+
+  // Touch helpers: press-and-hold
+  function bindHold(button, keyName) {
+    const on = (e) => { e.preventDefault(); input[keyName] = true; };
+    const off = (e) => { e.preventDefault(); input[keyName] = false; };
+    button.addEventListener('touchstart', on, {passive:false});
+    button.addEventListener('touchend', off, {passive:false});
+    button.addEventListener('touchcancel', off, {passive:false});
+    button.addEventListener('mousedown', on);
+    button.addEventListener('mouseup', off);
+    button.addEventListener('mouseleave', off);
+  }
+
+  // Touch helpers: tap once
+  function bindTap(button, cb) {
+    const on = (e) => { e.preventDefault(); cb(); };
+    button.addEventListener('touchstart', on, {passive:false});
+    button.addEventListener('mousedown', on);
+  }
+
+  bindHold(btnLeft, 'left');
+  bindHold(btnRight, 'right');
+  bindHold(btnFire, 'fire');
+
+  bindTap(btnUp, () => input.justLaneUp = true);
+  bindTap(btnDown, () => input.justLaneDown = true);
+  bindTap(btnPause, () => input.pauseToggle = true);
+
+  bindTap(btnSoldier, () => start('soldier'));
+  bindTap(btnEmu, () => start('emu'));
+  bindTap(btnRestart, () => resetToMenu());
+
+  // Keyboard (for desktop)
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'ArrowLeft') input.left = true;
+    if (e.code === 'ArrowRight') input.right = true;
+    if (e.code === 'Space') { input.fire = true; input.justFire = true; }
+    if (e.code === 'ArrowUp') input.justLaneUp = true;
+    if (e.code === 'ArrowDown') input.justLaneDown = true;
+    if (e.code === 'Digit1') start('soldier');
+    if (e.code === 'Digit2') start('emu');
+    if (e.code === 'KeyR') resetToMenu();
+    if (e.code === 'Escape') input.pauseToggle = true;
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowLeft') input.left = false;
+    if (e.code === 'ArrowRight') input.right = false;
+    if (e.code === 'Space') input.fire = false;
+  });
+
+  // Game state
+  let state = 'menu'; // menu | play | gameover
+  let mode = null;    // soldier | emu
+  let paused = false;
+
+  let score = 0;
+  let t = 0;
+  let lastT = nowSec();
+  let spawnTimer = 0;
+
+  const projectiles = [];
+  const enemies = [];
+
+  const player = {
+    x: 120, lane: 3, y: laneY[3],
+    w: 36, h: 36,
+    hp: 8, maxHp: 8,
+    cd: 0, laneCd: 0,
+    hitFlash: 0
+  };
+
+  function resetToMenu() {
+    state = 'menu';
+    mode = null;
+    paused = false;
+    score = 0;
+    t = 0;
+    spawnTimer = 0;
+    projectiles.length = 0;
+    enemies.length = 0;
+    modePill.textContent = 'Mode: —';
+    scorePill.textContent = 'Score: 0';
+    timePill.textContent = 'Time: 0.0s';
+  }
+
+  function start(which) {
+    mode = which;
+    state = 'play';
+    paused = false;
+
+    score = 0;
+    t = 0;
+    spawnTimer = 0;
+    projectiles.length = 0;
+    enemies.length = 0;
+
+    if (mode === 'soldier') {
+      player.x = 120; player.w = 36; player.h = 36;
+      player.maxHp = 8; player.hp = 8;
+    } else {
+      player.x = W - 140; player.w = 64; player.h = 40;
+      player.maxHp = 10; player.hp = 10;
+    }
+    player.lane = 3;
+    player.y = laneY[player.lane];
+    player.cd = 0;
+    player.laneCd = 0;
+    player.hitFlash = 0;
+
+    modePill.textContent = `Mode: ${mode.toUpperCase()}`;
+    scorePill.textContent = `Score: ${score}`;
+    timePill.textContent = `Time: ${t.toFixed(1)}s`;
+  }
+
+  function spawnEnemy() {
+    const hp = (t > 55) ? 4 : (t > 25 ? 3 : 2);
+
+    if (mode === 'soldier') {
+      // Emus from right, stick to lanes
+      const lane = Math.floor(Math.random() * LANES);
+      const speed = 150 + Math.min(240, t*6);
+      enemies.push({
+        type: 'emu',
+        x: W + 60,
+        lane,
+        y: laneY[lane],
+        w: 44, h: 28,
+        hp, maxHp: hp,
+        speed,
+        shootCd: rand(0.7, 1.4),
+        hitFlash: 0
+      });
+    } else {
+      // Soldiers from left, stick to lanes
+      const lane = Math.floor(Math.random() * LANES);
+      const speed = 140 + Math.min(260, t*6);
+      enemies.push({
+        type: 'soldier',
+        x: -60,
+        lane,
+        y: laneY[lane],
+        w: 36, h: 36,
+        hp, maxHp: hp,
+        speed,
+        shootCd: rand(0.5, 1.2),
+        hitFlash: 0
+      });
+    }
+  }
+
+  function shootPlayer() {
+    if (player.cd > 0) return;
+
+    if (mode === 'soldier') {
+      projectiles.push({
+        owner: 'player',
+        x: player.x + 24, y: player.y,
+        vx: 560, vy: 0,
+        r: 4, ttl: 1.2,
+        color: BULLET, dmg: 1
+      });
+      player.cd = 0.14;
+    } else {
+      projectiles.push({
+        owner: 'player',
+        x: player.x - 30, y: player.y,
+        vx: -480, vy: 0,
+        r: 5, ttl: 1.4,
+        color: SPIT, dmg: 1
+      });
+      player.cd = 0.18;
+    }
+  }
+
+  function enemyShoot(e) {
+    if (mode === 'soldier') {
+      // emu fights back (spit to left)
+      projectiles.push({
+        owner: 'enemy',
+        x: e.x - 18, y: e.y,
+        vx: -280, vy: 0,
+        r: 5, ttl: 2.0,
+        color: SPIT, dmg: 1
+      });
+      e.shootCd = rand(0.9, 1.7);
+    } else {
+      // soldier shoots (bullet to right)
+      projectiles.push({
+        owner: 'enemy',
+        x: e.x + 18, y: e.y,
+        vx: 340, vy: 0,
+        r: 4, ttl: 2.0,
+        color: BULLET, dmg: 1
+      });
+      e.shootCd = rand(0.8, 1.6);
+    }
+  }
+
+  function update(dt) {
+    // pause toggle
+    if (input.pauseToggle) {
+      paused = !paused;
+      input.pauseToggle = false;
+    }
+    if (paused) return;
+
+    t += dt;
+
+    // spawn cadence ramps
+    const base = (mode === 'soldier') ? 1.0 : 1.05;
+    const ramp = Math.max(0.42, base - t/120);
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) {
+      spawnEnemy();
+      spawnTimer = ramp + rand(-0.12, 0.18);
+    }
+
+    // player cooldowns
+    player.cd = Math.max(0, player.cd - dt);
+    player.laneCd = Math.max(0, player.laneCd - dt);
+    player.hitFlash = Math.max(0, player.hitFlash - dt);
+
+    // lane switches (discrete)
+    if (player.laneCd === 0) {
+      if (input.justLaneUp) {
+        player.lane = Math.max(0, player.lane - 1);
+        player.laneCd = 0.14;
+      } else if (input.justLaneDown) {
+        player.lane = Math.min(LANES - 1, player.lane + 1);
+        player.laneCd = 0.14;
+      }
+    }
+    input.justLaneUp = false;
+    input.justLaneDown = false;
+
+    player.y = laneY[player.lane];
+
+    // x movement only
+    const speed = (mode === 'soldier') ? 270 : 300;
+    if (input.left) player.x -= speed * dt;
+    if (input.right) player.x += speed * dt;
+
+    if (mode === 'soldier') player.x = clamp(player.x, 40, W * 0.62);
+    else player.x = clamp(player.x, W * 0.38, W - 40);
+
+    // shoot
+    if (input.fire) shootPlayer();
+
+    // enemies
+    for (const e of enemies) {
+      e.hitFlash = Math.max(0, e.hitFlash - dt);
+      e.shootCd = Math.max(0, e.shootCd - dt);
+
+      if (mode === 'soldier') {
+        e.x -= e.speed * dt;
+      } else {
+        e.x += e.speed * dt;
+      }
+
+      // occasional lane changes (tiny "swerves", still lane-based)
+      if (Math.random() < 0.007) {
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        e.lane = clamp(e.lane + dir, 0, LANES - 1);
+        e.y = laneY[e.lane];
+      }
+
+      if (e.shootCd === 0 && Math.random() < 0.65) {
+        enemyShoot(e);
+      }
+    }
+
+    // projectiles
+    for (const p of projectiles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.ttl -= dt;
+    }
+
+    // collisions
+    const px = player.x - player.w/2, py = player.y - player.h/2;
+
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      const pr = p.r;
+      const bx = p.x - pr, by = p.y - pr, bw = pr*2, bh = pr*2;
+
+      // enemy hits player
+      if (p.owner === 'enemy') {
+        if (rectCollide(bx, by, bw, bh, px, py, player.w, player.h)) {
+          player.hp -= p.dmg;
+          player.hitFlash = 0.12;
+          projectiles.splice(i, 1);
+          continue;
+        }
+      }
+
+      // player hits enemies
+      if (p.owner === 'player') {
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          const ex = e.x - e.w/2, ey = e.y - e.h/2;
+          if (rectCollide(bx, by, bw, bh, ex, ey, e.w, e.h)) {
+            e.hp -= p.dmg;
+            e.hitFlash = 0.12;
+            projectiles.splice(i, 1);
+
+            if (e.hp <= 0) {
+              score += 10;
+              enemies.splice(j, 1);
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    // cleanup projectiles
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      if (p.ttl <= 0 || p.x < -80 || p.x > W + 80) projectiles.splice(i, 1);
+    }
+
+    // cleanup enemies & escape penalty
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      if (mode === 'soldier' && e.x < -90) { score = Math.max(0, score - 5); enemies.splice(i, 1); }
+      if (mode === 'emu' && e.x > W + 90) { score = Math.max(0, score - 5); enemies.splice(i, 1); }
+    }
+
+    // game over
+    if (player.hp <= 0) state = 'gameover';
+
+    // HUD
+    scorePill.textContent = `Score: ${score}`;
+    timePill.textContent = `Time: ${t.toFixed(1)}s`;
+  }
+
+  // Drawing
+  function drawScanlines() {
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = '#000';
+    for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 1);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawGround() {
+    ctx.fillStyle = SAND;
+    ctx.fillRect(0, H - 78, W, 78);
+  }
+
+  function drawLanes() {
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    for (const y of laneY) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawHpBar(x, y, w, hp, maxHp) {
+    const bw = w, bh = 6;
+    ctx.fillStyle = 'rgba(255,255,255,.18)';
+    ctx.fillRect(x - bw/2, y, bw, bh);
+    const fill = Math.max(0, Math.floor(bw * (hp / Math.max(1, maxHp))));
+    ctx.fillStyle = '#78ff78';
+    ctx.fillRect(x - bw/2, y, fill, bh);
+  }
+
+  function drawPlayer() {
+    const flash = player.hitFlash > 0;
+    if (mode === 'soldier') {
+      ctx.fillStyle = flash ? HIT : SOLDIER;
+      ctx.fillRect(player.x - player.w/2, player.y - player.h/2, player.w, player.h);
+      // gun
+      ctx.fillStyle = '#e6e6e6';
+      ctx.fillRect(player.x + player.w/2 - 2, player.y - 2, 16, 4);
+      drawHpBar(player.x, player.y - player.h/2 - 12, player.w, player.hp, player.maxHp);
+    } else {
+      // emu
+      ctx.fillStyle = flash ? HIT : EMU;
+      ctx.beginPath();
+      ctx.ellipse(player.x, player.y, player.w/2, player.h/2, 0, 0, Math.PI*2);
+      ctx.fill();
+      // head
+      ctx.fillStyle = '#f0f0f0';
+      ctx.beginPath();
+      ctx.arc(player.x + player.w*0.28, player.y - player.h*0.18, 6, 0, Math.PI*2);
+      ctx.fill();
+      // beak
+      ctx.fillStyle = '#fad278';
+      ctx.beginPath();
+      ctx.moveTo(player.x + player.w*0.34, player.y - player.h*0.18);
+      ctx.lineTo(player.x + player.w*0.48, player.y - player.h*0.14);
+      ctx.lineTo(player.x + player.w*0.34, player.y - player.h*0.10);
+      ctx.closePath();
+      ctx.fill();
+      drawHpBar(player.x, player.y - player.h/2 - 12, player.w, player.hp, player.maxHp);
+    }
+  }
+
+  function drawEnemy(e) {
+    const flash = e.hitFlash > 0;
+    if (e.type === 'emu') {
+      ctx.fillStyle = flash ? HIT : EMU;
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y, e.w/2, e.h/2, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#f0f0f0';
+      ctx.beginPath();
+      ctx.arc(e.x + e.w*0.22, e.y - e.h*0.10, 4, 0, Math.PI*2);
+      ctx.fill();
+      drawHpBar(e.x, e.y - e.h/2 - 10, e.w, e.hp, e.maxHp);
+    } else {
+      ctx.fillStyle = flash ? HIT : ENEMY_SOLDIER;
+      ctx.fillRect(e.x - e.w/2, e.y - e.h/2, e.w, e.h);
+      // gun
+      ctx.fillStyle = '#e6e6e6';
+      ctx.fillRect(e.x - e.w/2 - 14, e.y - 2, 14, 4);
+      drawHpBar(e.x, e.y - e.h/2 - 10, e.w, e.hp, e.maxHp);
+    }
+  }
+
+  function drawProjectile(p) {
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  function drawCenteredText(lines, yStart) {
+    ctx.fillStyle = HUDC;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = '28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText(lines[0], W/2, yStart);
+    ctx.font = '16px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    for (let i = 1; i < lines.length; i++) {
+      ctx.fillText(lines[i], W/2, yStart + 42 + (i-1)*24);
+    }
+  }
+
+  function render() {
+    // background
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = BG;
+    ctx.fillRect(0,0,W,H);
+
+    drawGround();
+    drawLanes();
+    drawScanlines();
+
+    if (state === 'menu') {
+      drawCenteredText([
+        'EMU WAR ARCADE (FIXED LANES)',
+        'Tap “Play as SOLDIER” or “Play as EMU” below.',
+        'Touch: ▲/▼ change lanes, ◀/▶ move, FIRE shoots.',
+        'Keyboard: 1/2 start, arrows + Space.'
+      ], 140);
+      return;
+    }
+
+    // entities
+    for (const e of enemies) drawEnemy(e);
+    for (const p of projectiles) drawProjectile(p);
+    drawPlayer();
+
+    // overlay pause/game over
+    if (paused) {
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha = 1;
+      drawCenteredText(['PAUSED', 'Tap Pause again to resume.'], 200);
+    }
+
+    if (state === 'gameover') {
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha = 1;
+      drawCenteredText(['GAME OVER', `Final score: ${score}`, 'Tap Restart (or press R).'], 190);
+    }
+  }
+
+  function loop() {
+    const cur = nowSec();
+    let dt = cur - lastT;
+    lastT = cur;
+    dt = Math.min(0.033, dt); // clamp (stability)
+
+    if (state === 'play') update(dt);
+
+    render();
+
+    // clear one-shot flags
+    input.justFire = false;
+
+    requestAnimationFrame(loop);
+  }
+
+  resetToMenu();
+  lastT = nowSec();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
