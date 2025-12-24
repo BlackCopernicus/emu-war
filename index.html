@@ -3,12 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>Emu War Arcade — GoPro (Mobile) — Nets & Angry Emus</title>
+  <title>Emu War Arcade — Mobile Fit (Nets & Angry Emus)</title>
   <style>
     html, body { margin:0; padding:0; background:#0f1016; color:#e6e6e6; font-family:-apple-system,system-ui,Segoe UI,Roboto,Arial,sans-serif; }
     body { overscroll-behavior: none; }
     #wrap { display:flex; flex-direction:column; align-items:center; gap:10px; padding:10px; }
-    canvas { background:#12131b; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.35); touch-action:none; }
+    canvas{
+      width: min(96vw, 520px);   /* fits phone */
+      height: auto;
+      max-height: 62vh;          /* keep buttons visible */
+      background:#12131b;
+      border-radius:12px;
+      box-shadow:0 6px 24px rgba(0,0,0,.35);
+      touch-action:none;
+      display:block;
+    }
     .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; align-items:center; }
     .pill { padding:4px 10px; border-radius:999px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); font-size:14px; opacity:.95;}
     .btn {
@@ -48,13 +57,13 @@
     <div class="pill" id="modePill">Mode: —</div>
     <div class="pill" id="scorePill">Score: 0</div>
     <div class="pill" id="timePill">Time: 0.0s</div>
-    <div class="pill" id="statusPill">GoPro | Fixed lanes</div>
+    <div class="pill" id="statusPill">GoPro | Fixed lanes | Mobile fit</div>
   </div>
 
   <canvas id="c" width="900" height="560"></canvas>
 
   <div class="small" id="helpText">
-    Fixed lanes. ◀/▶ change lanes. FIRE throws a net/bag (soldier) or spits (emu).
+    Fixed lanes. ◀/▶ change lanes (or ▲/▼). FIRE throws a net/bag (soldier) or spits (emu).
     Bushes/rocks block projectiles. Angry emus hide, flank, spit, and peck up close.
   </div>
 
@@ -105,7 +114,32 @@
   const btnFire = document.getElementById('btnFire');
   const btnPause = document.getElementById('btnPause');
 
-  const W = canvas.width, H = canvas.height;
+  // --- Mobile-fit canvas (sharp on retina, no cropping) ---
+  let dpr = Math.min(2, window.devicePixelRatio || 1);
+  function fitToPhone(){
+    const cssW = Math.min(window.innerWidth * 0.96, 520);
+    const cssH = Math.min(window.innerHeight * 0.62, 520);
+    const aspect = 900 / 560;
+
+    let w = cssW, h = cssW / aspect;
+    if (h > cssH){ h = cssH; w = h * aspect; }
+
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+
+    // Draw in CSS pixels; DPR handled by transform.
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', fitToPhone);
+  fitToPhone();
+
+  function W(){ return canvas.width / dpr; }
+  function H(){ return canvas.height / dpr; }
 
   // Colors
   const BG = '#12131b';
@@ -133,17 +167,17 @@
   const ROCK = '#5f6674';
   const ROCK_DARK = '#3f4652';
 
-  // Perspective + lanes
+  // Lanes + perspective (dynamic with screen)
   const LANES = 7;
-  const horizonY = 86;
-  const nearY = H - 95;
-  const roadTopW = 190;
-  const roadBotW = 860;
+  function horizonY(){ return 0.16 * H(); }
+  function nearY(){ return H() - 0.17 * H(); }
+  function roadTopW(){ return 0.22 * W(); }
+  function roadBotW(){ return 0.96 * W(); }
 
   // Terrain scroll
   const worldScroll = 0.11;
 
-  // Caps for mobile stability
+  // Mobile stability caps
   const MAX_OBS = 34;
   const MAX_ENEMIES = 36;
   const MAX_PROJ = 70;
@@ -153,22 +187,22 @@
   function randi(a,b){ return Math.floor(rand(a,b+1)); }
   function nowSec(){ return performance.now()/1000; }
 
+  // z: 1 far -> horizon; 0 near -> bottom
   function yFromZ(z){
-    const t = z*z;
-    return nearY + (horizonY - nearY) * t;
+    const t = z*z; // GoPro-ish depth curve
+    return nearY() + (horizonY() - nearY()) * t;
   }
   function halfRoadW(z){
     const t = z*z;
-    const w = roadBotW + (roadTopW - roadBotW) * t;
+    const w = roadBotW() + (roadTopW() - roadBotW()) * t;
     return w/2;
   }
   function laneCenterX(lane, z){
     const hw = halfRoadW(z);
-    const left = W/2 - hw;
+    const left = W()/2 - hw;
     const frac = (lane + 0.5) / LANES;
     return left + frac * (hw*2);
   }
-  function laneWidth(z){ return (halfRoadW(z)*2)/LANES; }
   function scaleFromZ(z){ return 0.25 + (1.0 - z) * 1.10; }
 
   // Inputs
@@ -259,7 +293,7 @@
     t = 0;
     enemies.length=0; projectiles.length=0; obstacles.length=0;
 
-    player.lane = 3;
+    player.lane = Math.floor(LANES/2);
     player.z = 0.03;
     player.cd = 0;
     player.laneCd = 0;
@@ -330,22 +364,19 @@
         hp: (t>60?4:(t>25?3:2)),
         maxHp: (t>60?4:(t>25?3:2)),
         speed: 0.095 + Math.min(0.14, t/750),
-        shootCd: rand(0.9, 1.8),
+        shootCd: rand(1.0, 2.1),
         state:'advance',
         hitFlash:0
       });
     }
   }
 
-  // Projectiles
-  // kind: 'spit' or 'net'
+  // Projectiles: 'spit' or 'net'
   function enemyShoot(e){
     if (mode === 'soldier'){
-      // emu spits toward player
       projectiles.push({ owner:'enemy', kind:'spit', lane:e.lane, z:e.z, vz: -0.52, dmg:1, ttl: 2.1 });
       e.shootCd = rand(0.9, 1.8);
     } else {
-      // soldier throws net toward player
       projectiles.push({ owner:'enemy', kind:'net', lane:e.lane, z:e.z, vz: -0.46, dmg:1, ttl: 2.2 });
       e.shootCd = rand(1.0, 2.1);
     }
@@ -354,11 +385,9 @@
   function playerShoot(){
     if (player.cd > 0) return;
     if (mode === 'soldier'){
-      // soldier throws net/bag forward
       projectiles.push({ owner:'player', kind:'net', lane:player.lane, z:player.z, vz: +0.62, dmg:2, ttl: 2.0 });
       player.cd = 0.22;
     } else {
-      // emu spits forward
       projectiles.push({ owner:'player', kind:'spit', lane:player.lane, z:player.z, vz: +0.70, dmg:1, ttl: 2.0 });
       player.cd = 0.18;
     }
@@ -368,7 +397,6 @@
     return aLane === bLane && Math.abs(aZ - bZ) <= zTol;
   }
 
-  // Surround condition (emurs win by surrounding soldier)
   function checkSurround(){
     if (mode !== 'soldier') return false;
     const near = 0.12;
@@ -412,7 +440,7 @@
 
     if (input.fire) playerShoot();
 
-    // Scroll obstacles + delete old (prevents freeze)
+    // Scroll obstacles + delete old
     for (let i = obstacles.length - 1; i >= 0; i--){
       obstacles[i].z -= worldScroll * dt;
       if (obstacles[i].z <= 0.02) obstacles.splice(i, 1);
@@ -442,7 +470,6 @@
       if (e.type === 'emu'){
         e.peckCd = Math.max(0, e.peckCd - dt);
 
-        // hide near an obstacle in same lane
         const cover = obstacles.find(o => o.lane === e.lane && o.z < e.z && (e.z - o.z) < 0.24);
         if (cover && e.z > 0.34 && Math.random() < 0.014){
           e.state = 'hide';
@@ -450,14 +477,12 @@
           e.hideT = 0;
         }
 
-        // flanking + trying to surround
         if (e.z > 0.18 && Math.random() < (0.018 + Math.min(0.028, t/2300))){
           const dir = (player.lane < e.lane) ? -1 : (player.lane > e.lane ? 1 : (Math.random()<0.5?-1:1));
           e.lane = clamp(e.lane + dir, 0, LANES-1);
           e.state = 'flank';
         }
 
-        // Movement
         if (e.state === 'hide'){
           if (e.z > e.hideZ) e.z -= e.speed * dt * 0.35;
           else {
@@ -472,23 +497,18 @@
           e.z -= e.speed * dt;
         }
 
-        // Spit (ranged)
         if (e.shootCd === 0 && Math.random() < 0.62){
           enemyShoot(e);
         }
 
-        // Peck (melee) if close enough
-        if (e.peckCd === 0 && e.z <= 0.10 && Math.abs(e.lane - player.lane) <= 0){
+        if (e.peckCd === 0 && e.z <= 0.10 && e.lane === player.lane){
           player.hp -= 1;
           player.hitFlash = 0.12;
           e.peckCd = rand(0.55, 0.95);
         }
 
       } else {
-        // soldier enemy
         e.z -= e.speed * dt;
-
-        // throw net sometimes
         if (e.shootCd === 0 && Math.random() < 0.58){
           enemyShoot(e);
         }
@@ -510,7 +530,6 @@
 
       if (p.owner === 'enemy'){
         if (hitAtLaneZ(p.lane, p.z, player.lane, player.z, 0.04)){
-          // nets or spit hit player
           player.hp -= p.dmg;
           player.hitFlash = 0.12;
           projectiles.splice(i,1);
@@ -534,7 +553,7 @@
       }
     }
 
-    // Enemies reaching camera damage player
+    // Enemies reaching camera
     for (let i=enemies.length-1; i>=0; i--){
       const e = enemies[i];
       if (e.z <= 0.02){
@@ -550,12 +569,11 @@
       if (p.ttl <= 0 || p.z < -0.2 || p.z > 1.25) projectiles.splice(i,1);
     }
 
-    // Hard caps (mobile safety)
+    // Caps
     if (obstacles.length > MAX_OBS) obstacles.splice(0, obstacles.length - MAX_OBS);
     if (enemies.length > MAX_ENEMIES) enemies.splice(0, enemies.length - MAX_ENEMIES);
     if (projectiles.length > MAX_PROJ) projectiles.splice(0, projectiles.length - MAX_PROJ);
 
-    // Surround win
     if (checkSurround()) player.hp = 0;
 
     if (player.hp <= 0) state = 'gameover';
@@ -564,44 +582,7 @@
     timePill.textContent = `Time: ${t.toFixed(1)}s`;
   }
 
-  // --- Drawing ---
-  function drawRoad(){
-    const topHalf = roadTopW/2;
-    const botHalf = roadBotW/2;
-
-    ctx.fillStyle = ROAD;
-    ctx.beginPath();
-    ctx.moveTo(W/2 - topHalf, horizonY);
-    ctx.lineTo(W/2 + topHalf, horizonY);
-    ctx.lineTo(W/2 + botHalf, nearY + 70);
-    ctx.lineTo(W/2 - botHalf, nearY + 70);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.strokeStyle = ROAD_EDGE;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(W/2 - topHalf, horizonY);
-    ctx.lineTo(W/2 - botHalf, nearY + 70);
-    ctx.moveTo(W/2 + topHalf, horizonY);
-    ctx.lineTo(W/2 + botHalf, nearY + 70);
-    ctx.stroke();
-
-    ctx.globalAlpha = 0.18;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    for (let i=1; i<LANES; i++){
-      const frac = i / LANES;
-      const xTop = (W/2 - topHalf) + frac * (topHalf*2);
-      const xBot = (W/2 - botHalf) + frac * (botHalf*2);
-      ctx.beginPath();
-      ctx.moveTo(xTop, horizonY);
-      ctx.lineTo(xBot, nearY + 70);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  }
-
+  // --- Drawing helpers ---
   function drawHP(x,y,w,hp,maxHp){
     ctx.fillStyle = 'rgba(255,255,255,.18)';
     ctx.fillRect(x-w/2, y, w, 6);
@@ -611,21 +592,18 @@
   }
 
   function drawEmu(x,y,s,flash,hp,maxHp,angry,phase){
-    // phase drives head bob
-    const bob = Math.sin(phase) * 4;         // pixels in local coords
+    const bob = Math.sin(phase) * 4;
     const neckWob = Math.sin(phase*1.15) * 1.6;
 
     ctx.save();
     ctx.translate(x,y);
     ctx.scale(s,s);
 
-    // body
     ctx.fillStyle = flash ? HIT : EMU_BODY;
     ctx.beginPath();
     ctx.ellipse(0, 8, 22, 14, 0, 0, Math.PI*2);
     ctx.fill();
 
-    // neck (bobbing)
     ctx.strokeStyle = flash ? HIT : EMU_DARK;
     ctx.lineWidth = 6;
     ctx.lineCap = 'round';
@@ -634,13 +612,11 @@
     ctx.quadraticCurveTo(22 + neckWob, -10 + bob*0.2, 14 + neckWob, -26 + bob);
     ctx.stroke();
 
-    // head
     ctx.fillStyle = flash ? HIT : EMU_DARK;
     ctx.beginPath();
     ctx.ellipse(14 + neckWob, -28 + bob, 9, 7, 0.2, 0, Math.PI*2);
     ctx.fill();
 
-    // beak
     ctx.fillStyle = EMU_BEAK;
     ctx.beginPath();
     ctx.moveTo(22 + neckWob, -28 + bob);
@@ -649,13 +625,11 @@
     ctx.closePath();
     ctx.fill();
 
-    // eye
     ctx.fillStyle = EMU_EYE;
     ctx.beginPath();
     ctx.arc(16 + neckWob, -30 + bob, 2.2, 0, Math.PI*2);
     ctx.fill();
 
-    // angry brows (frowned)
     if (angry){
       ctx.strokeStyle = '#1a0f08';
       ctx.lineWidth = 2.6;
@@ -670,7 +644,6 @@
       ctx.stroke();
     }
 
-    // legs
     ctx.strokeStyle = flash ? HIT : '#3a2a1b';
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -683,35 +656,30 @@
   }
 
   function drawSoldier(x,y,s,flash,hp,maxHp,phase){
-    // phase adds subtle bob (like stepping)
     const step = Math.sin(phase) * 2.2;
 
     ctx.save();
     ctx.translate(x,y);
     ctx.scale(s,s);
 
-    // body
     ctx.fillStyle = flash ? HIT : SOLDIER;
     ctx.fillRect(-14, -4 + step*0.3, 28, 32);
 
-    // belt
     ctx.fillStyle = flash ? HIT : SOLDIER_DARK;
     ctx.fillRect(-14, 12 + step*0.3, 28, 6);
 
-    // head
     ctx.fillStyle = flash ? HIT : '#d8c7a6';
     ctx.beginPath();
     ctx.arc(0, -14 + step*0.25, 10, 0, Math.PI*2);
     ctx.fill();
 
-    // helmet
     ctx.fillStyle = HELMET;
     ctx.beginPath();
     ctx.ellipse(0, -18 + step*0.25, 12, 8, 0, Math.PI, Math.PI*2);
     ctx.fill();
     ctx.fillRect(-12, -18 + step*0.25, 24, 6);
 
-    // net bag (no gun)
+    // bag/net pouch on side
     ctx.fillStyle = flash ? HIT : 'rgba(230,230,230,.9)';
     ctx.beginPath();
     ctx.ellipse(14, 10 + step*0.2, 8, 10, 0.2, 0, Math.PI*2);
@@ -727,16 +695,13 @@
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(s, s);
-
     ctx.fillStyle = BUSH;
     ctx.beginPath(); ctx.arc(-18, 0, 18, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(0, -8, 22, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(20, 0, 18, 0, Math.PI*2); ctx.fill();
-
     ctx.fillStyle = BUSH_DARK;
     ctx.beginPath(); ctx.arc(-8, 6, 14, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(12, 8, 13, 0, Math.PI*2); ctx.fill();
-
     ctx.restore();
   }
 
@@ -744,7 +709,6 @@
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(s, s);
-
     ctx.fillStyle = ROCK;
     ctx.beginPath();
     ctx.moveTo(-24, 10);
@@ -754,7 +718,6 @@
     ctx.quadraticCurveTo(0, 26, -24, 10);
     ctx.closePath();
     ctx.fill();
-
     ctx.fillStyle = ROCK_DARK;
     ctx.beginPath();
     ctx.moveTo(-10, 8);
@@ -763,7 +726,6 @@
     ctx.quadraticCurveTo(0, 14, -10, 8);
     ctx.closePath();
     ctx.fill();
-
     ctx.restore();
   }
 
@@ -784,14 +746,12 @@
     ctx.translate(x, y);
     ctx.scale(s, s);
 
-    // net ring
     ctx.strokeStyle = NET;
     ctx.lineWidth = 2.2;
     ctx.beginPath();
     ctx.ellipse(0, 0, 12, 8, 0, 0, Math.PI*2);
     ctx.stroke();
 
-    // criss-cross mesh
     ctx.strokeStyle = NET_DARK;
     ctx.lineWidth = 1.4;
     ctx.beginPath();
@@ -813,38 +773,26 @@
     ctx.fill();
   }
 
-  function drawCentered(lines, yStart){
-    ctx.fillStyle = HUDC;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.font = '28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
-    ctx.fillText(lines[0], W/2, yStart);
-    ctx.font = '16px system-ui, -apple-system, Segoe UI, Roboto, Arial';
-    for (let i=1;i<lines.length;i++){
-      ctx.fillText(lines[i], W/2, yStart + 42 + (i-1)*24);
-    }
-  }
-
   function drawRoad(){
-    const topHalf = roadTopW/2;
-    const botHalf = roadBotW/2;
+    const topHalf = roadTopW()/2;
+    const botHalf = roadBotW()/2;
 
     ctx.fillStyle = ROAD;
     ctx.beginPath();
-    ctx.moveTo(W/2 - topHalf, horizonY);
-    ctx.lineTo(W/2 + topHalf, horizonY);
-    ctx.lineTo(W/2 + botHalf, nearY + 70);
-    ctx.lineTo(W/2 - botHalf, nearY + 70);
+    ctx.moveTo(W()/2 - topHalf, horizonY());
+    ctx.lineTo(W()/2 + topHalf, horizonY());
+    ctx.lineTo(W()/2 + botHalf, nearY() + 70);
+    ctx.lineTo(W()/2 - botHalf, nearY() + 70);
     ctx.closePath();
     ctx.fill();
 
     ctx.strokeStyle = ROAD_EDGE;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(W/2 - topHalf, horizonY);
-    ctx.lineTo(W/2 - botHalf, nearY + 70);
-    ctx.moveTo(W/2 + topHalf, horizonY);
-    ctx.lineTo(W/2 + botHalf, nearY + 70);
+    ctx.moveTo(W()/2 - topHalf, horizonY());
+    ctx.lineTo(W()/2 - botHalf, nearY() + 70);
+    ctx.moveTo(W()/2 + topHalf, horizonY());
+    ctx.lineTo(W()/2 + botHalf, nearY() + 70);
     ctx.stroke();
 
     ctx.globalAlpha = 0.18;
@@ -852,39 +800,50 @@
     ctx.lineWidth = 1;
     for (let i=1; i<LANES; i++){
       const frac = i / LANES;
-      const xTop = (W/2 - topHalf) + frac * (topHalf*2);
-      const xBot = (W/2 - botHalf) + frac * (botHalf*2);
+      const xTop = (W()/2 - topHalf) + frac * (topHalf*2);
+      const xBot = (W()/2 - botHalf) + frac * (botHalf*2);
       ctx.beginPath();
-      ctx.moveTo(xTop, horizonY);
-      ctx.lineTo(xBot, nearY + 70);
+      ctx.moveTo(xTop, horizonY());
+      ctx.lineTo(xBot, nearY() + 70);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }
 
+  function drawCentered(lines, yStart){
+    ctx.fillStyle = HUDC;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = '28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText(lines[0], W()/2, yStart);
+    ctx.font = '16px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    for (let i=1;i<lines.length;i++){
+      ctx.fillText(lines[i], W()/2, yStart + 42 + (i-1)*24);
+    }
+  }
+
   function render(){
-    ctx.clearRect(0,0,W,H);
+    ctx.clearRect(0,0,W(),H());
     ctx.fillStyle = BG;
-    ctx.fillRect(0,0,W,H);
+    ctx.fillRect(0,0,W(),H());
 
     const grad = ctx.createLinearGradient(0,0,0,220);
     grad.addColorStop(0, 'rgba(180,180,255,.14)');
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
-    ctx.fillRect(0,0,W,240);
+    ctx.fillRect(0,0,W(),240);
 
     drawRoad();
 
     if (state === 'menu'){
       drawCentered([
-        'EMU WAR ARCADE — Nets & Angry Emus',
-        'Tap 1 for Soldier (nets) or 2 for Emu (spit)',
-        'Angry emus hide + flank + spit + peck. Bushes/rocks block shots.'
+        'EMU WAR ARCADE — Mobile Fit',
+        'Soldier throws NETS. Angry emus spit + peck.',
+        'Bushes/rocks block projectiles. Emus flank + surround.'
       ], 150);
       return;
     }
 
-    // Sort in place (mobile friendly)
     obstacles.sort((a,b)=> b.z - a.z);
     enemies.sort((a,b)=> b.z - a.z);
     projectiles.sort((a,b)=> b.z - a.z);
@@ -905,7 +864,7 @@
       else drawSpitProjectile(p);
     }
 
-    // player
+    // Player
     {
       const y = yFromZ(player.z);
       const x = laneCenterX(player.lane, player.z);
@@ -918,7 +877,7 @@
     if (paused){
       ctx.globalAlpha = 0.75;
       ctx.fillStyle = '#000';
-      ctx.fillRect(0,0,W,H);
+      ctx.fillRect(0,0,W(),H());
       ctx.globalAlpha = 1;
       drawCentered(['PAUSED', 'Tap Pause to resume.'], 200);
     }
@@ -926,12 +885,13 @@
     if (state === 'gameover'){
       ctx.globalAlpha = 0.75;
       ctx.fillStyle = '#000';
-      ctx.fillRect(0,0,W,H);
+      ctx.fillRect(0,0,W(),H());
       ctx.globalAlpha = 1;
       drawCentered(['GAME OVER', `Final score: ${score}`, 'Tap Restart (or press R).'], 190);
     }
   }
 
+  // Main loop
   function loop(){
     const cur = nowSec();
     let dt = cur - lastT;
