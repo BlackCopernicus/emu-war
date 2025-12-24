@@ -3,38 +3,34 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>Emu War Arcade (Fixed Lanes)</title>
+  <title>Emu War Arcade — GoPro Perspective</title>
   <style>
-    html, body { margin: 0; padding: 0; background: #0f1016; color: #e6e6e6; font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; }
-    #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; }
-    canvas { background: #12131b; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); touch-action: none; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
+    html, body { margin:0; padding:0; background:#0f1016; color:#e6e6e6; font-family:-apple-system,system-ui,Segoe UI,Roboto,Arial,sans-serif; }
+    #wrap { display:flex; flex-direction:column; align-items:center; gap:10px; padding:10px; }
+    canvas { background:#12131b; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.35); touch-action:none; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; align-items:center; }
+    .pill { padding:4px 10px; border-radius:999px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); font-size:14px; opacity:.95;}
     .btn {
-      border: 1px solid rgba(255,255,255,.18);
-      background: rgba(255,255,255,.08);
-      color: #eaeaea;
-      padding: 10px 14px;
-      border-radius: 12px;
-      font-size: 16px;
-      user-select: none;
-      -webkit-user-select: none;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.08);
+      color:#eaeaea;
+      padding:10px 14px;
+      border-radius:12px;
+      font-size:16px;
+      user-select:none; -webkit-user-select:none;
+      text-align:center;
+      min-width:120px;
     }
     .btn:active { transform: translateY(1px); background: rgba(255,255,255,.12); }
-    .hud { font-size: 14px; opacity: .9; text-align: center; line-height: 1.35; }
-    .pill { padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); }
-    .spacer { width: 8px; }
     .touchpad {
-      position: relative;
-      width: min(920px, 96vw);
-      display: grid;
+      width:min(920px, 96vw);
+      display:grid;
       grid-template-columns: 1fr 1fr 1fr;
-      gap: 10px;
-      margin-top: 4px;
+      gap:10px;
+      margin-top:4px;
     }
-    .touchpad .btn { text-align: center; }
-    .touchpad .btn.big { font-weight: 700; letter-spacing: .3px; }
-    .small { font-size: 12px; opacity: .85; }
-    a { color: #cbd5ff; }
+    .touchpad .btn.big { font-weight:700; letter-spacing:.3px; }
+    .small { font-size:12px; opacity:.85; text-align:center; }
   </style>
 </head>
 <body>
@@ -43,14 +39,13 @@
     <div class="pill" id="modePill">Mode: —</div>
     <div class="pill" id="scorePill">Score: 0</div>
     <div class="pill" id="timePill">Time: 0.0s</div>
+    <div class="pill" id="hintPill">GoPro perspective</div>
   </div>
 
   <canvas id="c" width="900" height="560"></canvas>
 
-  <div class="row hud">
-    <span class="pill">Fixed lanes</span>
-    <span class="spacer"></span>
-    <span class="small">Touch: ▲/▼ lanes, ◀/▶ move, FIRE shoot.</span>
+  <div class="row small">
+    Touch: ▲/▼ change lane, ◀/▶ strafe, FIRE shoots forward. Bushes block shots. Emus try to flank and surround.
   </div>
 
   <div class="row">
@@ -68,23 +63,18 @@
     <div class="btn" id="btnPause">Pause</div>
   </div>
 
-  <div class="hud small">
-    Parody arcade inspired by the 1932 “Emu War” story. (No realism implied.)
-  </div>
+  <div class="small">Parody arcade inspired by the 1932 “Emu War” story. (Cartoon violence.)</div>
 </div>
 
 <script>
 (() => {
-  // Canvas
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
 
-  // HUD
   const modePill = document.getElementById('modePill');
   const scorePill = document.getElementById('scorePill');
   const timePill = document.getElementById('timePill');
 
-  // Buttons
   const btnSoldier = document.getElementById('btnSoldier');
   const btnEmu = document.getElementById('btnEmu');
   const btnRestart = document.getElementById('btnRestart');
@@ -97,45 +87,70 @@
 
   const W = canvas.width, H = canvas.height;
 
-  // Colors
+  // Palette
   const BG = '#12131b';
-  const SAND = '#2d2317';
+  const ROAD = '#262431';
+  const ROAD_EDGE = 'rgba(255,255,255,.10)';
   const HUDC = '#e6e6e6';
-  const SOLDIER = '#5abfff';
-  const EMU = '#ffa05a';
-  const ENEMY_SOLDIER = '#82f0aa';
+
+  const SOLDIER = '#4fb06d';     // green uniform
+  const SOLDIER_DARK = '#2f7a46';
+  const HELMET = '#3e4a3f';
+  const GUN = '#d7d7d7';
+
+  const EMU_BODY = '#b7773a';
+  const EMU_DARK = '#6a3e1a';
+  const EMU_BEAK = '#f2c27b';
+  const EMU_EYE = '#f5f5f5';
+
   const BULLET = '#fff096';
   const SPIT = '#ff78c8';
   const HIT = '#ff5050';
 
-  // Lanes
+  const BUSH = '#2e7d55';
+  const BUSH_DARK = '#1f5a3d';
+
+  // Perspective + lanes
   const LANES = 7;
-  const TOP = 78;
-  const BOTTOM = H - 95;
-  const laneY = Array.from({length: LANES}, (_, i) => TOP + i*(BOTTOM-TOP)/(LANES-1));
+  const horizonY = 86;
+  const nearY = H - 95;
+  const roadTopW = 190;
+  const roadBotW = 860;
 
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-  function nowSec() { return performance.now() / 1000; }
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
   function rand(a,b){ return a + Math.random()*(b-a); }
-  function choice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+  function nowSec(){ return performance.now()/1000; }
 
-  function rectCollide(ax, ay, aw, ah, bx, by, bw, bh){
-    return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by;
+  // z: 1.0 = far (near horizon), 0.0 = near (camera)
+  function yFromZ(z){
+    const t = z*z; // curvature = GoPro-ish
+    return nearY + (horizonY - nearY) * t;
+  }
+  function halfRoadW(z){
+    const t = z*z;
+    const w = roadBotW + (roadTopW - roadBotW) * t;
+    return w/2;
+  }
+  function laneCenterX(lane, z){
+    const hw = halfRoadW(z);
+    const left = W/2 - hw;
+    const frac = (lane + 0.5) / LANES;
+    return left + frac * (hw*2);
+  }
+  function laneWidth(z){
+    return (halfRoadW(z)*2) / LANES;
+  }
+  function scaleFromZ(z){
+    // near bigger; far smaller
+    return 0.25 + (1.0 - z) * 1.10;
   }
 
-  // Input state
-  const input = {
-    left: false, right: false, fire: false,
-    laneUp: false, laneDown: false,
-    pauseToggle: false,
-    justLaneUp: false, justLaneDown: false,
-    justFire: false
-  };
+  // Inputs
+  const input = { left:false, right:false, fire:false, pauseToggle:false, justLaneUp:false, justLaneDown:false };
 
-  // Touch helpers: press-and-hold
   function bindHold(button, keyName) {
-    const on = (e) => { e.preventDefault(); input[keyName] = true; };
-    const off = (e) => { e.preventDefault(); input[keyName] = false; };
+    const on = (e)=>{ e.preventDefault(); input[keyName]=true; };
+    const off = (e)=>{ e.preventDefault(); input[keyName]=false; };
     button.addEventListener('touchstart', on, {passive:false});
     button.addEventListener('touchend', off, {passive:false});
     button.addEventListener('touchcancel', off, {passive:false});
@@ -143,10 +158,8 @@
     button.addEventListener('mouseup', off);
     button.addEventListener('mouseleave', off);
   }
-
-  // Touch helpers: tap once
   function bindTap(button, cb) {
-    const on = (e) => { e.preventDefault(); cb(); };
+    const on = (e)=>{ e.preventDefault(); cb(); };
     button.addEventListener('touchstart', on, {passive:false});
     button.addEventListener('mousedown', on);
   }
@@ -154,35 +167,32 @@
   bindHold(btnLeft, 'left');
   bindHold(btnRight, 'right');
   bindHold(btnFire, 'fire');
+  bindTap(btnUp, ()=> input.justLaneUp = true);
+  bindTap(btnDown, ()=> input.justLaneDown = true);
+  bindTap(btnPause, ()=> input.pauseToggle = true);
 
-  bindTap(btnUp, () => input.justLaneUp = true);
-  bindTap(btnDown, () => input.justLaneDown = true);
-  bindTap(btnPause, () => input.pauseToggle = true);
+  bindTap(btnSoldier, ()=> start('soldier'));
+  bindTap(btnEmu, ()=> start('emu'));
+  bindTap(btnRestart, ()=> resetToMenu());
 
-  bindTap(btnSoldier, () => start('soldier'));
-  bindTap(btnEmu, () => start('emu'));
-  bindTap(btnRestart, () => resetToMenu());
-
-  // Keyboard (for desktop)
-  window.addEventListener('keydown', (e) => {
+  window.addEventListener('keydown', (e)=>{
     if (e.code === 'ArrowLeft') input.left = true;
     if (e.code === 'ArrowRight') input.right = true;
-    if (e.code === 'Space') { input.fire = true; input.justFire = true; }
     if (e.code === 'ArrowUp') input.justLaneUp = true;
     if (e.code === 'ArrowDown') input.justLaneDown = true;
+    if (e.code === 'Space') input.fire = true;
+    if (e.code === 'Escape') input.pauseToggle = true;
     if (e.code === 'Digit1') start('soldier');
     if (e.code === 'Digit2') start('emu');
     if (e.code === 'KeyR') resetToMenu();
-    if (e.code === 'Escape') input.pauseToggle = true;
   });
-
-  window.addEventListener('keyup', (e) => {
+  window.addEventListener('keyup', (e)=>{
     if (e.code === 'ArrowLeft') input.left = false;
     if (e.code === 'ArrowRight') input.right = false;
     if (e.code === 'Space') input.fire = false;
   });
 
-  // Game state
+  // State
   let state = 'menu'; // menu | play | gameover
   let mode = null;    // soldier | emu
   let paused = false;
@@ -190,257 +200,313 @@
   let score = 0;
   let t = 0;
   let lastT = nowSec();
-  let spawnTimer = 0;
 
-  const projectiles = [];
-  const enemies = [];
+  const enemies = [];      // emus or soldiers
+  const projectiles = []; // bullets/spit (forward)
+  const bushes = [];      // terrain obstacles
 
+  // Player is always near camera (z ~ 0.02) but we keep slight depth
   const player = {
-    x: 120, lane: 3, y: laneY[3],
-    w: 36, h: 36,
-    hp: 8, maxHp: 8,
-    cd: 0, laneCd: 0,
+    lane: 3,
+    strafe: 0,        // small sideways within lane
+    z: 0.03,
+    hp: 10,
+    maxHp: 10,
+    cd: 0,
+    laneCd: 0,
     hitFlash: 0
   };
 
-  function resetToMenu() {
-    state = 'menu';
-    mode = null;
-    paused = false;
-    score = 0;
-    t = 0;
-    spawnTimer = 0;
-    projectiles.length = 0;
-    enemies.length = 0;
+  function resetToMenu(){
+    state='menu'; mode=null; paused=false;
+    score=0; t=0;
+    enemies.length=0; projectiles.length=0; bushes.length=0;
     modePill.textContent = 'Mode: —';
     scorePill.textContent = 'Score: 0';
     timePill.textContent = 'Time: 0.0s';
   }
 
-  function start(which) {
+  function start(which){
     mode = which;
     state = 'play';
     paused = false;
-
     score = 0;
     t = 0;
-    spawnTimer = 0;
-    projectiles.length = 0;
-    enemies.length = 0;
+    enemies.length=0; projectiles.length=0; bushes.length=0;
 
-    if (mode === 'soldier') {
-      player.x = 120; player.w = 36; player.h = 36;
-      player.maxHp = 8; player.hp = 8;
-    } else {
-      player.x = W - 140; player.w = 64; player.h = 40;
-      player.maxHp = 10; player.hp = 10;
-    }
     player.lane = 3;
-    player.y = laneY[player.lane];
+    player.strafe = 0;
+    player.z = 0.03;
     player.cd = 0;
     player.laneCd = 0;
     player.hitFlash = 0;
+
+    if (mode === 'soldier') { player.maxHp = 10; player.hp = 10; }
+    else { player.maxHp = 12; player.hp = 12; }
+
+    // initial bushes
+    spawnBushRow(0.72);
+    spawnBushRow(0.58);
+    spawnBushRow(0.44);
 
     modePill.textContent = `Mode: ${mode.toUpperCase()}`;
     scorePill.textContent = `Score: ${score}`;
     timePill.textContent = `Time: ${t.toFixed(1)}s`;
   }
 
-  function spawnEnemy() {
-    const hp = (t > 55) ? 4 : (t > 25 ? 3 : 2);
+  // --- Terrain / bushes
+  function spawnBushRow(z){
+    // place 2-3 bushes on random lanes at depth z
+    const count = (Math.random()<0.5) ? 2 : 3;
+    const taken = new Set();
+    for (let i=0;i<count;i++){
+      let lane;
+      do { lane = Math.floor(Math.random()*LANES); } while(taken.has(lane));
+      taken.add(lane);
+      bushes.push({ lane, z, r: rand(0.55, 0.85) }); // r scales bush size
+    }
+  }
 
-    if (mode === 'soldier') {
-      // Emus from right, stick to lanes
-      const lane = Math.floor(Math.random() * LANES);
-      const speed = 150 + Math.min(240, t*6);
+  function bushBlocksShot(lane, zFrom, zTo){
+    // simple check: if any bush in same lane is between projectile segment [zFrom..zTo]
+    for (const b of bushes){
+      if (b.lane !== lane) continue;
+      const zMin = Math.min(zFrom, zTo);
+      const zMax = Math.max(zFrom, zTo);
+      // allow small tolerance
+      if (b.z >= zMin - 0.01 && b.z <= zMax + 0.01) return true;
+    }
+    return false;
+  }
+
+  // --- Enemies & AI: emus flank + surround
+  function spawnEnemy(){
+    const farZ = rand(0.82, 0.98);
+    const lane = Math.floor(Math.random()*LANES);
+
+    if (mode === 'soldier'){
+      // spawn EMUS
       enemies.push({
-        type: 'emu',
-        x: W + 60,
+        type:'emu',
         lane,
-        y: laneY[lane],
-        w: 44, h: 28,
-        hp, maxHp: hp,
-        speed,
-        shootCd: rand(0.7, 1.4),
-        hitFlash: 0
+        strafe: rand(-0.15, 0.15),
+        z: farZ,
+        hp: (t>60?4:(t>25?3:2)),
+        maxHp: (t>60?4:(t>25?3:2)),
+        speed: 0.10 + Math.min(0.13, t/600), // toward camera (z decreases)
+        shootCd: rand(0.8, 1.6),
+        state:'advance', // advance | hide | flank
+        hitFlash:0
       });
     } else {
-      // Soldiers from left, stick to lanes
-      const lane = Math.floor(Math.random() * LANES);
-      const speed = 140 + Math.min(260, t*6);
+      // spawn SOLDIERS as enemies (when player is emu)
       enemies.push({
-        type: 'soldier',
-        x: -60,
+        type:'soldier',
         lane,
-        y: laneY[lane],
-        w: 36, h: 36,
-        hp, maxHp: hp,
-        speed,
-        shootCd: rand(0.5, 1.2),
-        hitFlash: 0
+        strafe: rand(-0.12, 0.12),
+        z: farZ,
+        hp: (t>60?4:(t>25?3:2)),
+        maxHp:(t>60?4:(t>25?3:2)),
+        speed: 0.095 + Math.min(0.13, t/650),
+        shootCd: rand(0.7, 1.4),
+        state:'advance',
+        hitFlash:0
       });
     }
   }
 
-  function shootPlayer() {
-    if (player.cd > 0) return;
-
-    if (mode === 'soldier') {
-      projectiles.push({
-        owner: 'player',
-        x: player.x + 24, y: player.y,
-        vx: 560, vy: 0,
-        r: 4, ttl: 1.2,
-        color: BULLET, dmg: 1
-      });
-      player.cd = 0.14;
+  function enemyShoot(e){
+    // Shots go forward/back along z. Player shots move to far (z increases). Enemy shots move to near (z decreases).
+    if (mode === 'soldier'){
+      // emu spit toward player (to near)
+      projectiles.push({ owner:'enemy', kind:'spit', lane:e.lane, z:e.z, vz: -0.45, dmg:1, ttl: 2.0 });
+      e.shootCd = rand(1.0, 1.8);
     } else {
-      projectiles.push({
-        owner: 'player',
-        x: player.x - 30, y: player.y,
-        vx: -480, vy: 0,
-        r: 5, ttl: 1.4,
-        color: SPIT, dmg: 1
-      });
+      // soldier bullet toward player (to near)
+      projectiles.push({ owner:'enemy', kind:'bullet', lane:e.lane, z:e.z, vz: -0.55, dmg:1, ttl: 2.0 });
+      e.shootCd = rand(0.9, 1.7);
+    }
+  }
+
+  function playerShoot(){
+    if (player.cd > 0) return;
+    if (mode === 'soldier'){
+      projectiles.push({ owner:'player', kind:'bullet', lane:player.lane, z:player.z, vz: +0.75, dmg:1, ttl: 1.6 });
+      player.cd = 0.16;
+    } else {
+      projectiles.push({ owner:'player', kind:'spit', lane:player.lane, z:player.z, vz: +0.68, dmg:1, ttl: 1.8 });
       player.cd = 0.18;
     }
   }
 
-  function enemyShoot(e) {
-    if (mode === 'soldier') {
-      // emu fights back (spit to left)
-      projectiles.push({
-        owner: 'enemy',
-        x: e.x - 18, y: e.y,
-        vx: -280, vy: 0,
-        r: 5, ttl: 2.0,
-        color: SPIT, dmg: 1
-      });
-      e.shootCd = rand(0.9, 1.7);
-    } else {
-      // soldier shoots (bullet to right)
-      projectiles.push({
-        owner: 'enemy',
-        x: e.x + 18, y: e.y,
-        vx: 340, vy: 0,
-        r: 4, ttl: 2.0,
-        color: BULLET, dmg: 1
-      });
-      e.shootCd = rand(0.8, 1.6);
-    }
+  // Collision in perspective: same lane + close depth
+  function hitAtLaneZ(aLane, aZ, bLane, bZ, zTol){
+    return aLane === bLane && Math.abs(aZ - bZ) <= zTol;
   }
 
-  function update(dt) {
-    // pause toggle
-    if (input.pauseToggle) {
-      paused = !paused;
-      input.pauseToggle = false;
+  // Surround condition (when player is soldier): if emus occupy lane-1 and lane+1 near camera and one on/near lane
+  function checkSurround(){
+    if (mode !== 'soldier') return false;
+    const near = 0.11;
+    let left=false, right=false, mid=false;
+    for (const e of enemies){
+      if (e.type !== 'emu') continue;
+      if (e.z > near) continue;
+      if (e.lane === player.lane) mid = true;
+      if (e.lane === player.lane - 1) left = true;
+      if (e.lane === player.lane + 1) right = true;
     }
+    // also allow “mid replaced by two-step close” so it triggers more often
+    if (!mid){
+      for (const e of enemies){
+        if (e.type !== 'emu') continue;
+        if (e.z > near) continue;
+        if (Math.abs(e.lane - player.lane) <= 1) mid = true;
+      }
+    }
+    return left && right && mid;
+  }
+
+  // Update loop
+  let spawnTimer = 0.0;
+  let bushTimer = 0.0;
+
+  function update(dt){
+    if (input.pauseToggle){ paused = !paused; input.pauseToggle=false; }
     if (paused) return;
 
     t += dt;
-
-    // spawn cadence ramps
-    const base = (mode === 'soldier') ? 1.0 : 1.05;
-    const ramp = Math.max(0.42, base - t/120);
-    spawnTimer -= dt;
-    if (spawnTimer <= 0) {
-      spawnEnemy();
-      spawnTimer = ramp + rand(-0.12, 0.18);
-    }
-
-    // player cooldowns
     player.cd = Math.max(0, player.cd - dt);
     player.laneCd = Math.max(0, player.laneCd - dt);
     player.hitFlash = Math.max(0, player.hitFlash - dt);
 
-    // lane switches (discrete)
-    if (player.laneCd === 0) {
-      if (input.justLaneUp) {
-        player.lane = Math.max(0, player.lane - 1);
-        player.laneCd = 0.14;
-      } else if (input.justLaneDown) {
-        player.lane = Math.min(LANES - 1, player.lane + 1);
-        player.laneCd = 0.14;
-      }
+    // Player lane change (discrete)
+    if (player.laneCd === 0){
+      if (input.justLaneUp){ player.lane = Math.max(0, player.lane - 1); player.laneCd = 0.14; }
+      else if (input.justLaneDown){ player.lane = Math.min(LANES-1, player.lane + 1); player.laneCd = 0.14; }
     }
     input.justLaneUp = false;
     input.justLaneDown = false;
 
-    player.y = laneY[player.lane];
+    // Strafe within lane (small)
+    const strafeSpeed = 1.6;
+    if (input.left) player.strafe -= strafeSpeed * dt;
+    if (input.right) player.strafe += strafeSpeed * dt;
+    player.strafe = clamp(player.strafe, -0.35, 0.35);
 
-    // x movement only
-    const speed = (mode === 'soldier') ? 270 : 300;
-    if (input.left) player.x -= speed * dt;
-    if (input.right) player.x += speed * dt;
+    // Fire
+    if (input.fire) playerShoot();
 
-    if (mode === 'soldier') player.x = clamp(player.x, 40, W * 0.62);
-    else player.x = clamp(player.x, W * 0.38, W - 40);
+    // Spawn enemies over time
+    const base = (mode === 'soldier') ? 0.95 : 1.05;
+    const ramp = Math.max(0.45, base - t/140);
+    spawnTimer -= dt;
+    if (spawnTimer <= 0){
+      spawnEnemy();
+      spawnTimer = ramp + rand(-0.10, 0.18);
+    }
 
-    // shoot
-    if (input.fire) shootPlayer();
+    // Spawn new bush rows occasionally (scrolling “world” illusion)
+    bushTimer -= dt;
+    if (bushTimer <= 0){
+      spawnBushRow(rand(0.55, 0.85));
+      bushTimer = 3.2 + rand(-0.5, 0.8);
+    }
 
-    // enemies
-    for (const e of enemies) {
+    // Enemy AI + movement
+    for (const e of enemies){
       e.hitFlash = Math.max(0, e.hitFlash - dt);
       e.shootCd = Math.max(0, e.shootCd - dt);
 
-      if (mode === 'soldier') {
-        e.x -= e.speed * dt;
+      // --- EMU AI when you are soldier:
+      //  - if there is a bush ahead in their lane, they may "hide" behind it
+      //  - they tend to flank toward lanes adjacent to player
+      if (mode === 'soldier' && e.type === 'emu'){
+        // decide hide: if bush exists in same lane near their path and they’re still far
+        const hideBush = bushes.find(b => b.lane === e.lane && b.z < e.z && (e.z - b.z) < 0.22);
+        if (hideBush && e.z > 0.35 && Math.random() < 0.012){
+          e.state = 'hide';
+          e.hideZ = hideBush.z + 0.03; // sit just behind
+        }
+
+        // flank behavior grows over time
+        if (e.z > 0.20 && Math.random() < 0.018 + Math.min(0.02, t/2500)){
+          // move toward player-adjacent lanes
+          const target = (player.lane + (Math.random()<0.5 ? -1 : 1));
+          const targetLane = clamp(target, 0, LANES-1);
+          if (Math.abs(targetLane - e.lane) >= 1) e.lane += (targetLane > e.lane ? 1 : -1);
+          e.state = 'flank';
+        }
+
+        // hide state: stop near hideZ for a moment, then pop out
+        if (e.state === 'hide'){
+          if (e.z > e.hideZ) {
+            e.z -= e.speed * dt * 0.35; // slow creep toward bush
+          } else {
+            // pause then resume (ambush)
+            e.hideT = (e.hideT ?? 0) + dt;
+            if (e.hideT > 0.7){
+              e.state = 'advance';
+              e.hideT = 0;
+              // optional: shoot when popping out
+              if (e.shootCd === 0 && Math.random() < 0.8) enemyShoot(e);
+            }
+          }
+        } else {
+          // advance toward camera
+          e.z -= e.speed * dt;
+        }
+
       } else {
-        e.x += e.speed * dt;
+        // generic advance
+        e.z -= e.speed * dt;
       }
 
-      // occasional lane changes (tiny "swerves", still lane-based)
-      if (Math.random() < 0.007) {
-        const dir = Math.random() < 0.5 ? -1 : 1;
-        e.lane = clamp(e.lane + dir, 0, LANES - 1);
-        e.y = laneY[e.lane];
-      }
-
-      if (e.shootCd === 0 && Math.random() < 0.65) {
-        enemyShoot(e);
+      // Enemy fire
+      if (e.shootCd === 0){
+        const fireChance = (mode === 'soldier' ? 0.55 : 0.60);
+        if (Math.random() < fireChance) enemyShoot(e);
+        else e.shootCd = rand(0.5, 1.0);
       }
     }
 
-    // projectiles
-    for (const p of projectiles) {
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+    // Projectiles move along z
+    for (const p of projectiles){
+      const zPrev = p.z;
+      p.z += p.vz * dt;
       p.ttl -= dt;
+
+      // bushes block shots if projectile crosses a bush depth in same lane
+      if (bushBlocksShot(p.lane, zPrev, p.z)){
+        p.ttl = -1; // delete
+      }
     }
 
-    // collisions
-    const px = player.x - player.w/2, py = player.y - player.h/2;
-
-    for (let i = projectiles.length - 1; i >= 0; i--) {
+    // Projectile hits
+    // Player gets hit by enemy shots near player.z
+    for (let i=projectiles.length-1; i>=0; i--){
       const p = projectiles[i];
-      const pr = p.r;
-      const bx = p.x - pr, by = p.y - pr, bw = pr*2, bh = pr*2;
+      if (p.ttl <= 0) { projectiles.splice(i,1); continue; }
 
-      // enemy hits player
-      if (p.owner === 'enemy') {
-        if (rectCollide(bx, by, bw, bh, px, py, player.w, player.h)) {
+      if (p.owner === 'enemy'){
+        if (hitAtLaneZ(p.lane, p.z, player.lane, player.z, 0.04)){
           player.hp -= p.dmg;
           player.hitFlash = 0.12;
-          projectiles.splice(i, 1);
+          projectiles.splice(i,1);
           continue;
         }
-      }
-
-      // player hits enemies
-      if (p.owner === 'player') {
-        for (let j = enemies.length - 1; j >= 0; j--) {
+      } else {
+        // player hits enemies
+        for (let j=enemies.length-1; j>=0; j--){
           const e = enemies[j];
-          const ex = e.x - e.w/2, ey = e.y - e.h/2;
-          if (rectCollide(bx, by, bw, bh, ex, ey, e.w, e.h)) {
+          const zTol = 0.045 + (1-e.z)*0.03; // slightly easier near camera
+          if (hitAtLaneZ(p.lane, p.z, e.lane, e.z, zTol)){
             e.hp -= p.dmg;
             e.hitFlash = 0.12;
-            projectiles.splice(i, 1);
-
-            if (e.hp <= 0) {
+            projectiles.splice(i,1);
+            if (e.hp <= 0){
               score += 10;
-              enemies.splice(j, 1);
+              enemies.splice(j,1);
             }
             break;
           }
@@ -448,20 +514,36 @@
       }
     }
 
-    // cleanup projectiles
-    for (let i = projectiles.length - 1; i >= 0; i--) {
-      const p = projectiles[i];
-      if (p.ttl <= 0 || p.x < -80 || p.x > W + 80) projectiles.splice(i, 1);
-    }
-
-    // cleanup enemies & escape penalty
-    for (let i = enemies.length - 1; i >= 0; i--) {
+    // Cleanup enemies that reach camera (they “got to you”)
+    for (let i=enemies.length-1; i>=0; i--){
       const e = enemies[i];
-      if (mode === 'soldier' && e.x < -90) { score = Math.max(0, score - 5); enemies.splice(i, 1); }
-      if (mode === 'emu' && e.x > W + 90) { score = Math.max(0, score - 5); enemies.splice(i, 1); }
+      if (e.z <= 0.02){
+        // If you are soldier and emu reaches you, it hurts (melee)
+        if (mode === 'soldier' && e.type === 'emu'){
+          player.hp -= 2;
+          player.hitFlash = 0.18;
+        }
+        // If you are emu and soldier reaches you, it hurts
+        if (mode === 'emu' && e.type === 'soldier'){
+          player.hp -= 2;
+          player.hitFlash = 0.18;
+        }
+        enemies.splice(i,1);
+      }
     }
 
-    // game over
+    // Cleanup projectiles out of bounds
+    for (let i=projectiles.length-1; i>=0; i--){
+      const p = projectiles[i];
+      if (p.ttl <= 0 || p.z < -0.2 || p.z > 1.25) projectiles.splice(i,1);
+    }
+
+    // Surround win condition (emus surround soldier)
+    if (checkSurround()){
+      player.hp = 0;
+    }
+
+    // Game over
     if (player.hp <= 0) state = 'gameover';
 
     // HUD
@@ -469,169 +551,282 @@
     timePill.textContent = `Time: ${t.toFixed(1)}s`;
   }
 
-  // Drawing
-  function drawScanlines() {
-    ctx.globalAlpha = 0.12;
-    ctx.fillStyle = '#000';
-    for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 1);
-    ctx.globalAlpha = 1;
-  }
+  // --- Drawing helpers
+  function drawRoad(){
+    // road polygon
+    const topHalf = roadTopW/2;
+    const botHalf = roadBotW/2;
+    ctx.fillStyle = ROAD;
+    ctx.beginPath();
+    ctx.moveTo(W/2 - topHalf, horizonY);
+    ctx.lineTo(W/2 + topHalf, horizonY);
+    ctx.lineTo(W/2 + botHalf, nearY + 70);
+    ctx.lineTo(W/2 - botHalf, nearY + 70);
+    ctx.closePath();
+    ctx.fill();
 
-  function drawGround() {
-    ctx.fillStyle = SAND;
-    ctx.fillRect(0, H - 78, W, 78);
-  }
+    // edges
+    ctx.strokeStyle = ROAD_EDGE;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(W/2 - topHalf, horizonY);
+    ctx.lineTo(W/2 - botHalf, nearY + 70);
+    ctx.moveTo(W/2 + topHalf, horizonY);
+    ctx.lineTo(W/2 + botHalf, nearY + 70);
+    ctx.stroke();
 
-  function drawLanes() {
-    ctx.globalAlpha = 0.22;
+    // lane lines
+    ctx.globalAlpha = 0.18;
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
-    for (const y of laneY) {
+    for (let i=1; i<LANES; i++){
+      const frac = i / LANES;
+      const xTop = (W/2 - topHalf) + frac * (topHalf*2);
+      const xBot = (W/2 - botHalf) + frac * (botHalf*2);
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
+      ctx.moveTo(xTop, horizonY);
+      ctx.lineTo(xBot, nearY + 70);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+
+    // subtle scanlines
+    ctx.globalAlpha = 0.10;
+    ctx.fillStyle = '#000';
+    for (let y=0; y<H; y+=6) ctx.fillRect(0,y,W,1);
+    ctx.globalAlpha = 1;
   }
 
-  function drawHpBar(x, y, w, hp, maxHp) {
-    const bw = w, bh = 6;
+  function drawHP(x,y,w,hp,maxHp){
     ctx.fillStyle = 'rgba(255,255,255,.18)';
-    ctx.fillRect(x - bw/2, y, bw, bh);
-    const fill = Math.max(0, Math.floor(bw * (hp / Math.max(1, maxHp))));
+    ctx.fillRect(x-w/2, y, w, 6);
+    const fill = Math.max(0, Math.floor(w * (hp / Math.max(1,maxHp))));
     ctx.fillStyle = '#78ff78';
-    ctx.fillRect(x - bw/2, y, fill, bh);
+    ctx.fillRect(x-w/2, y, fill, 6);
   }
 
-  function drawPlayer() {
-    const flash = player.hitFlash > 0;
-    if (mode === 'soldier') {
-      ctx.fillStyle = flash ? HIT : SOLDIER;
-      ctx.fillRect(player.x - player.w/2, player.y - player.h/2, player.w, player.h);
-      // gun
-      ctx.fillStyle = '#e6e6e6';
-      ctx.fillRect(player.x + player.w/2 - 2, player.y - 2, 16, 4);
-      drawHpBar(player.x, player.y - player.h/2 - 12, player.w, player.hp, player.maxHp);
-    } else {
-      // emu
-      ctx.fillStyle = flash ? HIT : EMU;
-      ctx.beginPath();
-      ctx.ellipse(player.x, player.y, player.w/2, player.h/2, 0, 0, Math.PI*2);
-      ctx.fill();
-      // head
-      ctx.fillStyle = '#f0f0f0';
-      ctx.beginPath();
-      ctx.arc(player.x + player.w*0.28, player.y - player.h*0.18, 6, 0, Math.PI*2);
-      ctx.fill();
-      // beak
-      ctx.fillStyle = '#fad278';
-      ctx.beginPath();
-      ctx.moveTo(player.x + player.w*0.34, player.y - player.h*0.18);
-      ctx.lineTo(player.x + player.w*0.48, player.y - player.h*0.14);
-      ctx.lineTo(player.x + player.w*0.34, player.y - player.h*0.10);
-      ctx.closePath();
-      ctx.fill();
-      drawHpBar(player.x, player.y - player.h/2 - 12, player.w, player.hp, player.maxHp);
-    }
-  }
+  // Emu sprite (vector)
+  function drawEmu(x,y,s,flash,hp,maxHp){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.scale(s,s);
 
-  function drawEnemy(e) {
-    const flash = e.hitFlash > 0;
-    if (e.type === 'emu') {
-      ctx.fillStyle = flash ? HIT : EMU;
-      ctx.beginPath();
-      ctx.ellipse(e.x, e.y, e.w/2, e.h/2, 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.fillStyle = '#f0f0f0';
-      ctx.beginPath();
-      ctx.arc(e.x + e.w*0.22, e.y - e.h*0.10, 4, 0, Math.PI*2);
-      ctx.fill();
-      drawHpBar(e.x, e.y - e.h/2 - 10, e.w, e.hp, e.maxHp);
-    } else {
-      ctx.fillStyle = flash ? HIT : ENEMY_SOLDIER;
-      ctx.fillRect(e.x - e.w/2, e.y - e.h/2, e.w, e.h);
-      // gun
-      ctx.fillStyle = '#e6e6e6';
-      ctx.fillRect(e.x - e.w/2 - 14, e.y - 2, 14, 4);
-      drawHpBar(e.x, e.y - e.h/2 - 10, e.w, e.hp, e.maxHp);
-    }
-  }
-
-  function drawProjectile(p) {
-    ctx.fillStyle = p.color;
+    // body
+    ctx.fillStyle = flash ? HIT : EMU_BODY;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.ellipse(0, 8, 22, 14, 0, 0, Math.PI*2);
     ctx.fill();
+
+    // neck
+    ctx.strokeStyle = flash ? HIT : EMU_DARK;
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(10, 4);
+    ctx.quadraticCurveTo(22, -10, 14, -26);
+    ctx.stroke();
+
+    // head
+    ctx.fillStyle = flash ? HIT : EMU_DARK;
+    ctx.beginPath();
+    ctx.ellipse(14, -28, 9, 7, 0.2, 0, Math.PI*2);
+    ctx.fill();
+
+    // beak
+    ctx.fillStyle = EMU_BEAK;
+    ctx.beginPath();
+    ctx.moveTo(22, -28);
+    ctx.lineTo(33, -24);
+    ctx.lineTo(22, -22);
+    ctx.closePath();
+    ctx.fill();
+
+    // eye
+    ctx.fillStyle = EMU_EYE;
+    ctx.beginPath();
+    ctx.arc(16, -30, 2.2, 0, Math.PI*2);
+    ctx.fill();
+
+    // legs
+    ctx.strokeStyle = flash ? HIT : '#3a2a1b';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-8, 18); ctx.lineTo(-10, 30);
+    ctx.moveTo(6, 18);  ctx.lineTo(6, 31);
+    ctx.stroke();
+
+    ctx.restore();
+    drawHP(x, y - 34*s, 52*s, hp, maxHp);
   }
 
-  function drawCenteredText(lines, yStart) {
+  // Soldier sprite (vector)
+  function drawSoldier(x,y,s,flash,hp,maxHp){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.scale(s,s);
+
+    // torso
+    ctx.fillStyle = flash ? HIT : SOLDIER;
+    ctx.fillRect(-14, -4, 28, 32);
+
+    // belt/vest
+    ctx.fillStyle = flash ? HIT : SOLDIER_DARK;
+    ctx.fillRect(-14, 12, 28, 6);
+
+    // head
+    ctx.fillStyle = flash ? HIT : '#d8c7a6';
+    ctx.beginPath();
+    ctx.arc(0, -14, 10, 0, Math.PI*2);
+    ctx.fill();
+
+    // helmet
+    ctx.fillStyle = HELMET;
+    ctx.beginPath();
+    ctx.ellipse(0, -18, 12, 8, 0, Math.PI, Math.PI*2);
+    ctx.fill();
+    ctx.fillRect(-12, -18, 24, 6);
+
+    // gun
+    ctx.fillStyle = GUN;
+    ctx.fillRect(12, 8, 20, 4);
+    ctx.fillRect(26, 6, 6, 8);
+
+    // arm
+    ctx.fillStyle = flash ? HIT : SOLDIER_DARK;
+    ctx.fillRect(8, 6, 10, 6);
+
+    ctx.restore();
+    drawHP(x, y - 36*s, 52*s, hp, maxHp);
+  }
+
+  function drawBush(lane, z, r){
+    const y = yFromZ(z);
+    const x = laneCenterX(lane, z);
+    const s = scaleFromZ(z) * r;
+    ctx.save();
+    ctx.translate(x, y+18*s);
+    ctx.scale(s, s);
+
+    // bush blobs
+    ctx.fillStyle = BUSH;
+    ctx.beginPath(); ctx.arc(-18, 0, 18, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -8, 22, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(20, 0, 18, 0, Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = BUSH_DARK;
+    ctx.beginPath(); ctx.arc(-8, 6, 14, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(12, 8, 13, 0, Math.PI*2); ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawProjectile(p){
+    const y = yFromZ(p.z);
+    const x = laneCenterX(p.lane, p.z);
+    const s = scaleFromZ(p.z);
+
+    if (p.kind === 'bullet'){
+      ctx.fillStyle = BULLET;
+      ctx.fillRect(x - 2*s, y - 6*s, 4*s, 12*s);
+    } else {
+      ctx.fillStyle = SPIT;
+      ctx.beginPath();
+      ctx.arc(x, y, 5*s, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  function drawPlayer(){
+    const y = yFromZ(player.z);
+    let x = laneCenterX(player.lane, player.z);
+    x += player.strafe * laneWidth(player.z) * 0.45;
+    const s = scaleFromZ(player.z) * 1.08;
+
+    if (mode === 'soldier') drawSoldier(x, y, s, player.hitFlash>0, player.hp, player.maxHp);
+    else drawEmu(x, y, s*1.05, player.hitFlash>0, player.hp, player.maxHp);
+  }
+
+  function drawCentered(lines, yStart){
     ctx.fillStyle = HUDC;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.font = '28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
     ctx.fillText(lines[0], W/2, yStart);
     ctx.font = '16px system-ui, -apple-system, Segoe UI, Roboto, Arial';
-    for (let i = 1; i < lines.length; i++) {
+    for (let i=1;i<lines.length;i++){
       ctx.fillText(lines[i], W/2, yStart + 42 + (i-1)*24);
     }
   }
 
-  function render() {
-    // background
+  function render(){
     ctx.clearRect(0,0,W,H);
     ctx.fillStyle = BG;
     ctx.fillRect(0,0,W,H);
 
-    drawGround();
-    drawLanes();
-    drawScanlines();
+    // sky/horizon glow
+    const grad = ctx.createLinearGradient(0,0,0,200);
+    grad.addColorStop(0, 'rgba(180,180,255,.14)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,W,220);
 
-    if (state === 'menu') {
-      drawCenteredText([
-        'EMU WAR ARCADE (FIXED LANES)',
-        'Tap “Play as SOLDIER” or “Play as EMU” below.',
-        'Touch: ▲/▼ change lanes, ◀/▶ move, FIRE shoots.',
-        'Keyboard: 1/2 start, arrows + Space.'
-      ], 140);
+    drawRoad();
+
+    if (state === 'menu'){
+      drawCentered([
+        'EMU WAR ARCADE — GoPro Mode',
+        '1: Soldier (shoot forward)   |   2: Emu (spit forward)',
+        'Bushes block shots. Emus flank and try to surround.'
+      ], 150);
       return;
     }
 
-    // entities
-    for (const e of enemies) drawEnemy(e);
-    for (const p of projectiles) drawProjectile(p);
-    drawPlayer();
+    // Draw far-to-near order: bushes, enemies, projectiles, player
+    // Sort by z descending (far first)
+    const bushSorted = [...bushes].sort((a,b)=> b.z - a.z);
+    for (const b of bushSorted) drawBush(b.lane, b.z, b.r);
 
-    // overlay pause/game over
-    if (paused) {
-      ctx.globalAlpha = 0.75;
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0,0,W,H);
-      ctx.globalAlpha = 1;
-      drawCenteredText(['PAUSED', 'Tap Pause again to resume.'], 200);
+    const enemySorted = [...enemies].sort((a,b)=> b.z - a.z);
+    for (const e of enemySorted){
+      const y = yFromZ(e.z);
+      let x = laneCenterX(e.lane, e.z);
+      x += e.strafe * laneWidth(e.z) * 0.45;
+      const s = scaleFromZ(e.z) * 0.95;
+
+      if (e.type === 'emu') drawEmu(x, y, s, e.hitFlash>0, e.hp, e.maxHp);
+      else drawSoldier(x, y, s, e.hitFlash>0, e.hp, e.maxHp);
     }
 
-    if (state === 'gameover') {
+    const projSorted = [...projectiles].sort((a,b)=> b.z - a.z);
+    for (const p of projSorted) drawProjectile(p);
+
+    drawPlayer();
+
+    if (paused){
       ctx.globalAlpha = 0.75;
       ctx.fillStyle = '#000';
       ctx.fillRect(0,0,W,H);
       ctx.globalAlpha = 1;
-      drawCenteredText(['GAME OVER', `Final score: ${score}`, 'Tap Restart (or press R).'], 190);
+      drawCentered(['PAUSED', 'Tap Pause again to resume.'], 200);
+    }
+
+    if (state === 'gameover'){
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha = 1;
+      drawCentered(['GAME OVER', `Final score: ${score}`, 'Tap Restart (or press R).'], 190);
     }
   }
 
-  function loop() {
+  function loop(){
     const cur = nowSec();
     let dt = cur - lastT;
     lastT = cur;
-    dt = Math.min(0.033, dt); // clamp (stability)
+    dt = Math.min(0.033, dt);
 
     if (state === 'play') update(dt);
-
     render();
-
-    // clear one-shot flags
-    input.justFire = false;
 
     requestAnimationFrame(loop);
   }
